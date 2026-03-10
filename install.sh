@@ -5,8 +5,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DIR="$SCRIPT_DIR/.claude"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # Colors
@@ -21,9 +20,8 @@ warn()  { echo -e "${YELLOW}[toolkit]${RESET} $1"; }
 error() { echo -e "${RED}[toolkit]${RESET} $1" >&2; }
 
 # Validate source
-if [ ! -d "$SOURCE_DIR" ]; then
-  error "Source directory not found: $SOURCE_DIR"
-  error "Run this script from the claude-tooling repo root."
+if [ ! -f "$REPO_DIR/install.sh" ] || [ ! -d "$REPO_DIR/agents" ]; then
+  error "Could not find toolkit files. Run this script from the claude-tooling repo."
   exit 1
 fi
 
@@ -33,7 +31,8 @@ echo ""
 # Create target if needed
 mkdir -p "$TARGET_DIR"
 
-# Directories to sync (these are fully owned by the toolkit)
+# Sync directories from repo root into ~/.claude/
+# These are fully owned by the toolkit — the installer replaces them on each run.
 SYNC_DIRS=(
   "agents"
   "commands"
@@ -43,14 +42,13 @@ SYNC_DIRS=(
 )
 
 for dir in "${SYNC_DIRS[@]}"; do
-  if [ -d "$SOURCE_DIR/$dir" ]; then
+  if [ -d "$REPO_DIR/$dir" ]; then
     mkdir -p "$TARGET_DIR/$dir"
-    # Use rsync if available (cleaner), fall back to cp
     if command -v rsync &> /dev/null; then
-      rsync -a --delete "$SOURCE_DIR/$dir/" "$TARGET_DIR/$dir/"
+      rsync -a --delete "$REPO_DIR/$dir/" "$TARGET_DIR/$dir/"
     else
       rm -rf "$TARGET_DIR/$dir"
-      cp -r "$SOURCE_DIR/$dir" "$TARGET_DIR/$dir"
+      cp -r "$REPO_DIR/$dir" "$TARGET_DIR/$dir"
     fi
     info "  Synced ${DIM}$dir/${RESET}"
   fi
@@ -63,8 +61,8 @@ COPY_FILES=(
 )
 
 for file in "${COPY_FILES[@]}"; do
-  if [ -f "$SOURCE_DIR/$file" ]; then
-    cp "$SOURCE_DIR/$file" "$TARGET_DIR/$file"
+  if [ -f "$REPO_DIR/$file" ]; then
+    cp "$REPO_DIR/$file" "$TARGET_DIR/$file"
     info "  Copied ${DIM}$file${RESET}"
   fi
 done
@@ -76,8 +74,6 @@ SETTINGS_FILE="$TARGET_DIR/settings.json"
 
 # Back up existing settings if they weren't created by this toolkit
 if [ -f "$SETTINGS_FILE" ]; then
-  # Check if we created it (has our marker comment... JSON doesn't support comments,
-  # so we check for our specific hook structure instead)
   if ! grep -q "gsd-check-update" "$SETTINGS_FILE" 2>/dev/null; then
     BACKUP="$SETTINGS_FILE.backup.$(date +%Y%m%d%H%M%S)"
     cp "$SETTINGS_FILE" "$BACKUP"
